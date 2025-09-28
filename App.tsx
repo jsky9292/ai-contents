@@ -122,7 +122,8 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         apiKey,
         prompt,
         uploadedImage.base64,
-        uploadedImage.file.type
+        uploadedImage.file.type,
+        undefined // 합성 이미지 없음
       );
 
       if (maskImages && maskImages.length > 0) {
@@ -169,7 +170,8 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         apiKey,
         prompt,
         uploadedImage.base64,
-        uploadedImage.file.type
+        uploadedImage.file.type,
+        undefined // 합성 이미지 없음
       );
 
       setImageUrls(images);
@@ -205,7 +207,8 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         apiKey,
         prompt,
         uploadedImage.base64,
-        uploadedImage.file.type
+        uploadedImage.file.type,
+        undefined // 합성 이미지 없음
       );
 
       setImageUrls(images);
@@ -230,14 +233,13 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
     try {
       const prompt = `You are an expert image inpainting model. You will receive two images followed by this text prompt. 1. The first image is the original image. 2. The second image is a mask. The white area in this mask indicates the region that needs to be removed and realistically filled. Your task is to remove the content within the white masked area from the first image and intelligently fill it in so it blends seamlessly with the surrounding pixels. Output only the final, single, inpainted image.`;
 
-      // 마스크를 두 번째 이미지로 전달
+      // 마스크를 합성 이미지로 전달
       const images = await editImage(
         apiKey,
         prompt,
         uploadedImage.base64,
         uploadedImage.file.type,
-        `data:${mask.mimeType};base64,${mask.data}`,
-        mask.mimeType
+        [{ base64: `data:${mask.mimeType};base64,${mask.data}`, mimeType: mask.mimeType }]
       );
 
       setImageUrls(images);
@@ -277,8 +279,7 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
           prompt,
           uploadedImage.base64,
           uploadedImage.file.type,
-          secondUploadedImage ? secondUploadedImage.base64 : undefined,
-          secondUploadedImage ? secondUploadedImage.file.type : undefined
+          secondUploadedImage ? [{ base64: secondUploadedImage.base64, mimeType: secondUploadedImage.file.type }] : undefined
         );
         setImageUrls(images);
       } else if (mode === 'video') {
@@ -303,10 +304,15 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
     setImageUrls(null);
 
     try {
-      const synthesisImageData = synthesisImages[0]?.image?.base64;
-      const synthesisImageType = synthesisImages[0]?.image?.file.type;
+      // 모든 합성 이미지 데이터 준비
+      const synthesisImagesData = synthesisImages
+        .filter(item => item.image)
+        .map(item => ({
+          base64: item.image!.base64,
+          mimeType: item.image!.file.type
+        }));
 
-      if (!synthesisImageData) {
+      if (synthesisImagesData.length === 0) {
         throw new Error('합성할 이미지를 업로드해주세요.');
       }
 
@@ -314,14 +320,15 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
 
 [CRITICAL RULES]:
 1. BASE IMAGE (First): Contains the PERSON whose identity MUST be 100% preserved
-2. SOURCE IMAGE (Second): Contains CLOTHING/PRODUCTS to transfer to the person
+2. SOURCE IMAGES: Contains CLOTHING/PRODUCTS to transfer to the person
 
 [USER REQUEST]: ${compositionPrompt}
 
 [EXECUTION]:
 - KEEP: Person's face, body, pose, expression from BASE image
-- TRANSFER: Clothing, accessories, or products from SOURCE image
-- RESULT: Person from BASE wearing/using items from SOURCE
+- TRANSFER: Clothing, accessories, or products from SOURCE images
+- COMBINE: If multiple source images, intelligently combine elements
+- RESULT: Person from BASE wearing/using items from SOURCES
 - QUALITY: Natural fit, realistic shadows, professional photography
 
 [OUTPUT]: Single synthesized image ONLY`;
@@ -331,8 +338,7 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         enhancedPrompt,
         uploadedImage.base64,
         uploadedImage.file.type,
-        synthesisImageData,
-        synthesisImageType
+        synthesisImagesData
       );
 
       setImageUrls(images);

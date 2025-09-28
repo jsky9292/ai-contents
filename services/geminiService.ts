@@ -141,8 +141,7 @@ export const editImage = async (
     prompt: string,
     base64ImageData: string,
     mimeType: string,
-    secondBase64ImageData?: string,
-    secondMimeType?: string
+    synthesisImagesData?: { base64: string; mimeType: string }[]
 ): Promise<string[]> => {
     if (!apiKey) {
         throw new Error('API 키가 필요합니다.');
@@ -156,10 +155,13 @@ export const editImage = async (
             { inlineData: { data: imageData, mimeType: mimeType } }
         ];
 
-        // 두 번째 이미지가 있으면 추가
-        if (secondBase64ImageData && secondMimeType) {
-            const secondImageData = secondBase64ImageData.split(',')[1];
-            parts.push({ inlineData: { data: secondImageData, mimeType: secondMimeType } });
+        // 합성 이미지들이 있으면 모두 추가
+        if (synthesisImagesData && synthesisImagesData.length > 0) {
+            // 모든 합성 이미지를 parts에 추가
+            for (const synthImage of synthesisImagesData) {
+                const synthImageData = synthImage.base64.split(',')[1];
+                parts.push({ inlineData: { data: synthImageData, mimeType: synthImage.mimeType } });
+            }
 
             // 지능적 이미지 합성을 위한 분석 기반 프롬프트 생성
             try {
@@ -168,8 +170,8 @@ export const editImage = async (
                     prompt,
                     base64ImageData,
                     mimeType,
-                    secondBase64ImageData,
-                    secondMimeType
+                    synthesisImagesData[0].base64,
+                    synthesisImagesData[0].mimeType
                 );
                 parts.push({ text: smartPrompt });
             } catch (error) {
