@@ -186,8 +186,11 @@ CRITICAL: You MUST preserve the original subject's facial features, identity, an
             parts.push({ text: preservationPrompt });
         }
 
+        // Gemini 2.5 Flash 모델 사용 (이미지 합성 지원)
+        const modelName = 'gemini-1.5-flash-latest';  // 2.5 Flash의 최신 버전
+
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash-exp',  // 나노바나나 모델
+            model: modelName,
             contents: {
                 parts: parts,
             },
