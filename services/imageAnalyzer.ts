@@ -78,22 +78,47 @@ export const generateSmartMergePrompt = async (
 
         // 분석 결과를 바탕으로 최적화된 합성 프롬프트 생성
         const smartPrompt = `
-${userPrompt}
+[CRITICAL MISSION]: Intelligent Fashion/Product Synthesis
 
-Technical requirements for perfect synthesis:
-- Merge ${analysis1.mainSubject} from first image with ${analysis2.mainSubject || analysis2.background} from second image
-- Match lighting: harmonize ${analysis1.lighting} with ${analysis2.lighting}
-- Color grading: blend ${analysis1.colors.join(', ')} with ${analysis2.colors.join(', ')}
-- Maintain ${analysis1.mood} mood while incorporating ${analysis2.mood} elements
-- Preserve original ${analysis1.composition} while integrating new elements
-- Create seamless transitions with no visible edges or artifacts
-- Ensure perspective consistency and natural shadows
-- Apply professional color correction and exposure matching
-- Ultra realistic, photorealistic quality, 8K resolution`;
+[PRIMARY DIRECTIVE]:
+The first image contains the MAIN PERSON whose face, body, and identity MUST be perfectly preserved.
+The second image contains CLOTHING, ACCESSORIES, or PRODUCTS to be transferred to the main person.
+
+[USER REQUEST]: ${userPrompt}
+
+[SYNTHESIS INSTRUCTIONS]:
+1. PRESERVE COMPLETELY from Image 1 (Base):
+   - The person's face, facial features, expression, skin tone
+   - Body shape, pose, and proportions
+   - Hair style and color (unless specifically requested to change)
+   - Identity and personal characteristics
+
+2. TRANSFER from Image 2 (Source):
+   - Clothing items (shirts, pants, dresses, jackets, etc.)
+   - Accessories (hats, glasses, jewelry, bags, etc.)
+   - Products being showcased
+   - Style and fabric details
+
+3. TECHNICAL REQUIREMENTS:
+   - Perfect fit adjustment: Resize clothing/products to fit the person naturally
+   - Lighting harmony: Match ${analysis1.lighting} throughout
+   - Perspective correction: Maintain ${analysis1.composition} and angle
+   - Color consistency: Blend naturally while preserving original clothing colors
+   - Remove mannequin/model from Image 2 completely
+   - Create realistic wrinkles, shadows, and fabric physics
+   - Ensure natural body proportions and posture
+   - Professional retouching quality
+
+[OUTPUT]: Single synthesized image with the person from Image 1 wearing/using items from Image 2
+Ultra realistic, photorealistic quality, professional fashion photography standard`;
 
         return smartPrompt;
     } catch (error) {
         // 분석 실패 시 기본 프롬프트 반환
-        return `${userPrompt}. Seamlessly merge these images with perfect lighting, color matching, and perspective. Ultra realistic, professional quality.`;
+        return `${userPrompt}
+
+CRITICAL: Keep the person's face and body from the FIRST image completely unchanged.
+Transfer ONLY the clothing/products from the SECOND image onto the person from the FIRST image.
+Create a natural, realistic synthesis with perfect fit and lighting.`;
     }
 };

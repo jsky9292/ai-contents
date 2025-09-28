@@ -310,16 +310,21 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         throw new Error('합성할 이미지를 업로드해주세요.');
       }
 
-      const enhancedPrompt = `[CORE MISSION: High-Fidelity Character Synthesis]
+      const enhancedPrompt = `[FASHION/PRODUCT SYNTHESIS MISSION]
 
-[ABSOLUTE RULE #1: FACIAL IDENTITY LOCK]
-Your most critical mission is to perfectly preserve the facial identity of the person in the BASE image.
+[CRITICAL RULES]:
+1. BASE IMAGE (First): Contains the PERSON whose identity MUST be 100% preserved
+2. SOURCE IMAGE (Second): Contains CLOTHING/PRODUCTS to transfer to the person
 
-[TASK INSTRUCTIONS]
-1. **ANALYZE INPUTS**: You have a BASE image (the primary subject) and one or more SOURCE images.
-2. **EXECUTE USER GOAL**: ${compositionPrompt}
-3. **SYNTHESIZE**: Create a SINGLE new image by applying the user's goal to the BASE image.
-4. **OUTPUT**: Your response MUST be ONLY the single, final, synthesized image.`;
+[USER REQUEST]: ${compositionPrompt}
+
+[EXECUTION]:
+- KEEP: Person's face, body, pose, expression from BASE image
+- TRANSFER: Clothing, accessories, or products from SOURCE image
+- RESULT: Person from BASE wearing/using items from SOURCE
+- QUALITY: Natural fit, realistic shadows, professional photography
+
+[OUTPUT]: Single synthesized image ONLY`;
 
       const images = await editImage(
         apiKey,
@@ -540,7 +545,10 @@ Your most critical mission is to perfectly preserve the facial identity of the p
 
                 {/* 이미지 합성 섹션 */}
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <h3 className="text-sm font-medium text-gray-700 mb-3">이미지 합성</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-3">이미지 합성 (패션/제품 합성)</h3>
+                  <p className="text-xs text-gray-500 mb-3">
+                    기본 이미지의 인물에게 합성 이미지의 의상이나 제품을 입혀줍니다.
+                  </p>
                   <div className="space-y-3">
                     {synthesisImages.map((item, index) => (
                       <div key={item.id} className="flex items-center space-x-2">
@@ -580,7 +588,7 @@ Your most critical mission is to perfectly preserve the facial identity of the p
                     <textarea
                       value={compositionPrompt}
                       onChange={(e) => setCompositionPrompt(e.target.value)}
-                      placeholder="합성 방식을 설명하세요... (예: 원본 인물에게 소스 갑옷을 입혀주세요)"
+                      placeholder="합성 방식을 설명하세요... (예: 마네킹의 옷을 입혀주세요, 제품을 들고 있게 해주세요)"
                       className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       rows={2}
                       disabled={isLoading}
