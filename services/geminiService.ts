@@ -2,6 +2,68 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { AspectRatio } from "../types";
 import { generateSmartMergePrompt } from "./imageAnalyzer";
 
+// 재시도 로직 유틸리티 함수
+const retryWithDelay = async <T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    delay: number = 1000
+): Promise<T> => {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            console.warn(`시도 ${i + 1}/${maxRetries} 실패:`, error.message);
+
+            // 마지막 시도면 에러 발생
+            if (i === maxRetries - 1) {
+                throw error;
+            }
+
+            // 429 (rate limit) 에러인 경우에만 재시도
+            if (error.message?.includes('429') || error.message?.includes('quota')) {
+                console.log(`${delay}ms 후 재시도...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2; // 지수 백오프
+            } else {
+                // 다른 에러는 즉시 발생
+                throw error;
+            }
+        }
+    }
+    throw new Error('최대 재시도 횟수 초과');
+};
+
+// API 키 유효성 검증 함수
+export const validateApiKey = async (apiKey: string): Promise<{ valid: boolean; error?: string }> => {
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+
+        // 간단한 텍스트 생성으로 API 키 테스트
+        const response = await ai.models.generateContent({
+            model: 'gemini-1.5-flash',
+            contents: {
+                parts: [{ text: 'Hello' }],
+            },
+        });
+
+        return { valid: !!response };
+    } catch (error: any) {
+        console.error('API Key validation error:', error);
+
+        if (error.message?.includes('API key not valid')) {
+            return { valid: false, error: 'API 키가 유효하지 않습니다.' };
+        }
+        if (error.message?.includes('quota')) {
+            return { valid: false, error: 'API 할당량이 초과되었습니다.' };
+        }
+        if (error.message?.includes('403')) {
+            return { valid: false, error: 'API 키 권한이 없습니다.' };
+        }
+
+        return { valid: false, error: error.message || '알 수 없는 오류' };
+    }
+};
+
 const handleApiError = (error: unknown): Error => {
     console.error("API Error:", error);
 
@@ -80,6 +142,12 @@ export const generateImages = async (
         throw new Error('API 키가 필요합니다.');
     }
 
+    console.log('API Key 정보:', {
+        hasKey: !!apiKey,
+        keyLength: apiKey?.length || 0,
+        keyStart: apiKey?.substring(0, 10) + '...'
+    });
+
     try {
         const ai = new GoogleGenAI({ apiKey });
 
@@ -87,17 +155,73 @@ export const generateImages = async (
         const enhancedPrompt = enhanceGenerationPrompt(prompt);
         console.log('향상된 프롬프트:', enhancedPrompt);
 
-        const response = await ai.models.generateImages({
-            model: 'imagen-4.0-generate-001',
-            prompt: enhancedPrompt,
-            config: {
-                numberOfImages,
-                outputMimeType: 'image/jpeg',
-                aspectRatio: aspectRatio as "1:1" | "16:9" | "9:16" | "4:3" | "3:4",
-            },
-        });
+        // 이미지 생성 모델 우선순위 (첫 번째부터 시도)
+        const imageModels = [
+            'gemini-2.5-flash-image-preview',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-flash'
+        ];
 
-        return response.generatedImages.map(img => `data:image/jpeg;base64,${img.image.imageBytes}`);
+        const images: string[] = [];
+        let lastError: any = null;
+
+        for (const modelName of imageModels) {
+            try {
+                console.log(`이미지 생성 시도: ${modelName}`);
+
+                for (let i = 0; i < numberOfImages; i++) {
+                    const response = await ai.models.generateContent({
+                        model: modelName,
+                        contents: {
+                            parts: [{ text: enhancedPrompt }],
+                        },
+                        config: {
+                            responseModalities: [Modality.IMAGE],
+                            outputMimeType: 'image/png',
+                        },
+                    });
+
+                    if (response.candidates && response.candidates.length > 0) {
+                        for (const part of response.candidates[0].content.parts) {
+                            if (part.inlineData) {
+                                const { mimeType: outMimeType, data } = part.inlineData;
+                                let validMimeType = outMimeType;
+                                if (!outMimeType || outMimeType === 'application/octet-stream') {
+                                    validMimeType = 'image/png';
+                                }
+                                images.push(`data:${validMimeType};base64,${data}`);
+                            }
+                        }
+                    }
+                }
+
+                // 성공하면 반복 중단
+                if (images.length > 0) {
+                    console.log(`이미지 생성 성공: ${modelName}`);
+                    break;
+                }
+            } catch (error: any) {
+                console.warn(`모델 ${modelName} 실패:`, error.message);
+                lastError = error;
+
+                // 404나 지원하지 않는 모델이면 다음 모델 시도
+                if (error.message?.includes('404') || error.message?.includes('not found') ||
+                    error.message?.includes('not supported') || error.message?.includes('text output')) {
+                    continue;
+                }
+
+                // 429 (rate limit)나 403 (permission)은 모든 모델에서 동일할 가능성이 높으므로 중단
+                if (error.message?.includes('429') || error.message?.includes('403')) {
+                    throw error;
+                }
+            }
+        }
+
+        if (images.length === 0) {
+            throw new Error("이미지 생성에 실패했습니다. 프롬프트를 수정하여 다시 시도해 주세요.");
+        }
+
+        return images;
 
     } catch (error) {
         throw handleApiError(error);
@@ -163,21 +287,8 @@ export const editImage = async (
                 parts.push({ inlineData: { data: synthImageData, mimeType: synthImage.mimeType } });
             }
 
-            // 지능적 이미지 합성을 위한 분석 기반 프롬프트 생성
-            try {
-                const smartPrompt = await generateSmartMergePrompt(
-                    apiKey,
-                    prompt,
-                    base64ImageData,
-                    mimeType,
-                    synthesisImagesData[0].base64,
-                    synthesisImagesData[0].mimeType
-                );
-                parts.push({ text: smartPrompt });
-            } catch (error) {
-                // 분석 실패 시 프롬프트 직접 사용
-                parts.push({ text: prompt });
-            }
+            // 직접 프롬프트 사용 (분석 기능 일시 비활성화)
+            parts.push({ text: prompt });
         } else {
             // 단일 이미지 편집 시 - 원본 보존 강조 추가
             const preservationPrompt = `${prompt}
@@ -186,19 +297,63 @@ CRITICAL: You MUST preserve the original subject's facial features, identity, an
             parts.push({ text: preservationPrompt });
         }
 
-        // Gemini 2.5 Flash 이미지 모델 사용 (이미지 합성 지원)
-        const modelName = 'gemini-2.0-flash-exp';  // 최신 무료 모델
+        // 이미지 편집 모델 우선순위 (첫 번째부터 시도)
+        const editModels = [
+            'gemini-2.5-flash-image-preview',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-flash'
+        ];
 
-        const response = await ai.models.generateContent({
-            model: modelName,
-            contents: {
-                parts: parts,
-            },
-            config: {
-                responseModalities: [Modality.IMAGE, Modality.TEXT],
-                outputMimeType: 'image/png', // PNG 형식으로 명시
-            },
-        });
+        let lastError: any = null;
+        let response: any = null;
+
+        for (const modelName of editModels) {
+            try {
+                console.log('이미지 편집 시도:', {
+                    model: modelName,
+                    partsCount: parts.length,
+                    hasSynthesisImages: !!(synthesisImagesData && synthesisImagesData.length > 0)
+                });
+
+                response = await ai.models.generateContent({
+                    model: modelName,
+                    contents: {
+                        parts: parts,
+                    },
+                    config: {
+                        responseModalities: [Modality.IMAGE, Modality.TEXT],
+                        outputMimeType: 'image/png',
+                    },
+                });
+
+                console.log(`이미지 편집 성공: ${modelName}`, {
+                    hasResponse: !!response,
+                    hasCandidates: !!(response.candidates && response.candidates.length > 0)
+                });
+
+                // 성공하면 반복 중단
+                break;
+            } catch (error: any) {
+                console.warn(`편집 모델 ${modelName} 실패:`, error.message);
+                lastError = error;
+
+                // 404나 지원하지 않는 모델이면 다음 모델 시도
+                if (error.message?.includes('404') || error.message?.includes('not found') ||
+                    error.message?.includes('not supported') || error.message?.includes('text output')) {
+                    continue;
+                }
+
+                // 429 (rate limit)나 403 (permission)은 모든 모델에서 동일할 가능성이 높으므로 중단
+                if (error.message?.includes('429') || error.message?.includes('403')) {
+                    throw error;
+                }
+            }
+        }
+
+        // 모든 모델이 실패한 경우
+        if (!response) {
+            throw lastError || new Error('모든 이미지 편집 모델이 실패했습니다.');
+        }
 
         const images: string[] = [];
         if (response.candidates && response.candidates.length > 0) {

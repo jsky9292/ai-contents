@@ -297,7 +297,16 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
 
   // 이미지 합성 기능
   const handleSynthesisGenerate = async () => {
-    if (!uploadedImage || synthesisImages.length === 0 || !compositionPrompt.trim()) return;
+    console.log('Synthesis started:', { uploadedImage, synthesisImages, compositionPrompt });
+
+    if (!uploadedImage || synthesisImages.length === 0 || !compositionPrompt.trim()) {
+      console.log('Missing requirements:', {
+        hasUploadedImage: !!uploadedImage,
+        synthesisImagesCount: synthesisImages.length,
+        hasPrompt: !!compositionPrompt.trim()
+      });
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -316,22 +325,29 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         throw new Error('합성할 이미지를 업로드해주세요.');
       }
 
-      const enhancedPrompt = `[FASHION/PRODUCT SYNTHESIS MISSION]
+      const enhancedPrompt = `CRITICAL INSTRUCTIONS - YOU MUST FOLLOW EXACTLY:
 
-[CRITICAL RULES]:
-1. BASE IMAGE (First): Contains the PERSON whose identity MUST be 100% preserved
-2. SOURCE IMAGES: Contains CLOTHING/PRODUCTS to transfer to the person
+You received 2 images:
+- First image: A PERSON - DO NOT CHANGE their face, skin, hair, pose, background
+- Second image: CLOTHING on mannequin/hanger - COPY this exact clothing
 
-[USER REQUEST]: ${compositionPrompt}
+YOUR TASK:
+1. Take the EXACT clothing from the second image (keep original colors, patterns, style)
+2. Put it on the person from the first image
+3. DO NOT CHANGE the clothing colors or style
+4. DO NOT CHANGE the person's face, hair, or body
+5. Make the clothing fit naturally on the person
 
-[EXECUTION]:
-- KEEP: Person's face, body, pose, expression from BASE image
-- TRANSFER: Clothing, accessories, or products from SOURCE images
-- COMBINE: If multiple source images, intelligently combine elements
-- RESULT: Person from BASE wearing/using items from SOURCES
-- QUALITY: Natural fit, realistic shadows, professional photography
+${compositionPrompt}
 
-[OUTPUT]: Single synthesized image ONLY`;
+OUTPUT: The person from image 1 wearing the EXACT clothing from image 2`;
+
+      console.log('Calling editImage with:', {
+        apiKey: apiKey ? 'Set' : 'Not set',
+        promptLength: enhancedPrompt.length,
+        baseImageType: uploadedImage.file.type,
+        synthesisCount: synthesisImagesData.length
+      });
 
       const images = await editImage(
         apiKey,
@@ -341,8 +357,10 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
         synthesisImagesData
       );
 
+      console.log('Images received:', images?.length);
       setImageUrls(images);
     } catch (err) {
+      console.error('Synthesis error:', err);
       setError(err instanceof Error ? err.message : '이미지 합성 중 오류가 발생했습니다.');
     } finally {
       setIsLoading(false);
@@ -366,7 +384,7 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
 
   const addSynthesisImage = () => {
     const newId = Date.now();
-    setSynthesisImages(prev => [...prev, { id: newId, image: null } as any]);
+    setSynthesisImages(prev => [...prev, { id: newId, image: null }]);
   };
 
   const renderResult = () => {
@@ -553,12 +571,15 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <h3 className="text-sm font-medium text-gray-700 mb-3">이미지 합성 (패션/제품 합성)</h3>
                   <p className="text-xs text-gray-500 mb-3">
-                    기본 이미지의 인물에게 합성 이미지의 의상이나 제품을 입혀줍니다.
+                    <strong>사용법:</strong><br />
+                    1. 위에서 기본 이미지 업로드 (인물 사진)<br />
+                    2. 아래에서 합성할 이미지 추가 (의상/제품)<br />
+                    3. 합성 방식 설명 입력 후 실행
                   </p>
                   <div className="space-y-3">
-                    {synthesisImages.map((item, index) => (
-                      <div key={item.id} className="flex items-center space-x-2">
-                        <span className="text-xs text-gray-600 w-20">소스 #{index + 1}</span>
+                    {synthesisImages.length === 0 ? (
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-gray-600 w-20">소스 #1</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -568,21 +589,44 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
                               const reader = new FileReader();
                               reader.onload = () => {
                                 const base64 = reader.result as string;
-                                handleSynthesisImageChange({ file, base64 }, item.id);
+                                const newId = Date.now();
+                                setSynthesisImages([{ id: newId, image: { file, base64 } }]);
                               };
                               reader.readAsDataURL(file);
                             }
                           }}
                           className="flex-1 text-xs"
                         />
-                        <button
-                          onClick={() => handleSynthesisImageChange(null, item.id)}
-                          className="text-red-500 hover:text-red-700 text-sm p-1"
-                        >
-                          ✕
-                        </button>
                       </div>
-                    ))}
+                    ) : (
+                      synthesisImages.map((item, index) => (
+                        <div key={item.id} className="flex items-center space-x-2">
+                          <span className="text-xs text-gray-600 w-20">소스 #{index + 1}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const base64 = reader.result as string;
+                                  handleSynthesisImageChange({ file, base64 }, item.id);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="flex-1 text-xs"
+                          />
+                          <button
+                            onClick={() => handleSynthesisImageChange(null, item.id)}
+                            className="text-red-500 hover:text-red-700 text-sm p-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))
+                    )}
 
                     <button
                       onClick={addSynthesisImage}
@@ -602,7 +646,7 @@ Create clean edges with proper anti-aliasing for hair and fine details. The mask
 
                     <button
                       onClick={handleSynthesisGenerate}
-                      disabled={isLoading || !compositionPrompt.trim() || synthesisImages.length === 0}
+                      disabled={isLoading || !uploadedImage || !compositionPrompt.trim() || synthesisImages.filter(item => item.image).length === 0}
                       className="w-full p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
                     >
                       합성 실행
