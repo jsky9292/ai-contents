@@ -170,26 +170,52 @@ export const generateImages = async (
                 console.log(`이미지 생성 시도: ${modelName}`);
 
                 for (let i = 0; i < numberOfImages; i++) {
-                    const response = await ai.models.generateContent({
-                        model: modelName,
-                        contents: {
-                            parts: [{ text: enhancedPrompt }],
+                    // REST API 직접 호출 시도
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+                    const requestBody = {
+                        contents: [{
+                            parts: [{
+                                text: enhancedPrompt
+                            }]
+                        }],
+                        generationConfig: {
+                            temperature: 1.0,
+                            topP: 0.95,
+                            topK: 40,
+                            maxOutputTokens: 8192,
+                            candidateCount: 1
+                        }
+                    };
+
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
                         },
-                        config: {
-                            responseModalities: [Modality.IMAGE],
-                            outputMimeType: 'image/png',
-                        },
+                        body: JSON.stringify(requestBody)
                     });
 
-                    if (response.candidates && response.candidates.length > 0) {
-                        for (const part of response.candidates[0].content.parts) {
-                            if (part.inlineData) {
-                                const { mimeType: outMimeType, data } = part.inlineData;
-                                let validMimeType = outMimeType;
-                                if (!outMimeType || outMimeType === 'application/octet-stream') {
-                                    validMimeType = 'image/png';
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        console.error('API 에러:', data);
+                        throw new Error(data.error?.message || '이미지 생성 실패');
+                    }
+
+                    // 응답 확인
+                    if (data.candidates && data.candidates.length > 0) {
+                        for (const candidate of data.candidates) {
+                            if (candidate.content?.parts) {
+                                for (const part of candidate.content.parts) {
+                                    if (part.inlineData) {
+                                        const { mimeType, data: imageData } = part.inlineData;
+                                        images.push(`data:${mimeType || 'image/png'};base64,${imageData}`);
+                                    } else if (part.text) {
+                                        // 텍스트 응답인 경우 (이미지 생성이 안되는 경우)
+                                        console.log('텍스트 응답:', part.text);
+                                    }
                                 }
-                                images.push(`data:${validMimeType};base64,${data}`);
                             }
                         }
                     }
@@ -315,16 +341,36 @@ CRITICAL: You MUST preserve the original subject's facial features, identity, an
                     hasSynthesisImages: !!(synthesisImagesData && synthesisImagesData.length > 0)
                 });
 
-                response = await ai.models.generateContent({
-                    model: modelName,
-                    contents: {
-                        parts: parts,
+                // REST API 직접 호출
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+                const requestBody = {
+                    contents: [{
+                        parts: parts
+                    }],
+                    generationConfig: {
+                        temperature: 0.8,
+                        topP: 0.95,
+                        topK: 40,
+                        maxOutputTokens: 8192,
+                        candidateCount: 1
+                    }
+                };
+
+                const apiResponse = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
                     },
-                    config: {
-                        responseModalities: [Modality.IMAGE, Modality.TEXT],
-                        outputMimeType: 'image/png',
-                    },
+                    body: JSON.stringify(requestBody)
                 });
+
+                response = await apiResponse.json();
+
+                if (!apiResponse.ok) {
+                    console.error('편집 API 에러:', response);
+                    throw new Error(response.error?.message || '이미지 편집 실패');
+                }
 
                 console.log(`이미지 편집 성공: ${modelName}`, {
                     hasResponse: !!response,
@@ -357,15 +403,21 @@ CRITICAL: You MUST preserve the original subject's facial features, identity, an
 
         const images: string[] = [];
         if (response.candidates && response.candidates.length > 0) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) {
-                    const { mimeType: outMimeType, data } = part.inlineData;
-                    // MIME 타입 검증 및 수정
-                    let validMimeType = outMimeType;
-                    if (!outMimeType || outMimeType === 'application/octet-stream') {
-                        validMimeType = 'image/jpeg';  // 기본값으로 JPEG 설정
+            for (const candidate of response.candidates) {
+                if (candidate.content?.parts) {
+                    for (const part of candidate.content.parts) {
+                        if (part.inlineData) {
+                            const { mimeType, data } = part.inlineData;
+                            // MIME 타입 검증 및 수정
+                            let validMimeType = mimeType;
+                            if (!mimeType || mimeType === 'application/octet-stream') {
+                                validMimeType = 'image/jpeg';  // 기본값으로 JPEG 설정
+                            }
+                            images.push(`data:${validMimeType};base64,${data}`);
+                        } else if (part.text) {
+                            console.log('텍스트 응답:', part.text.substring(0, 100) + '...');
+                        }
                     }
-                    images.push(`data:${validMimeType};base64,${data}`);
                 }
             }
         }
